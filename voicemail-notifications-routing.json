@@ -1,0 +1,100 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "bf9841e4-9529-407d-8acd-7dc770230c37",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 40
+    },
+    "ActionMetadata": {
+      "db9f0e99-0ecb-41da-9e33-0927df1dbe32": {
+        "position": {
+          "x": 942.4,
+          "y": 179.2
+        }
+      },
+      "bf9841e4-9529-407d-8acd-7dc770230c37": {
+        "position": {
+          "x": 164,
+          "y": 95.2
+        }
+      },
+      "1dba7fce-c6b7-4070-a2e9-88ce7097ab75": {
+        "position": {
+          "x": 688,
+          "y": 95.2
+        }
+      },
+      "ed4d68e4-88e1-4874-91ee-0999735aa83c": {
+        "position": {
+          "x": 421.6,
+          "y": 95.2
+        },
+        "parameters": {
+          "QueueId": {
+            "useDynamic": true
+          }
+        },
+        "useDynamic": true
+      }
+    },
+    "Annotations": [],
+    "name": "Voicemail routing",
+    "description": "",
+    "type": "contactFlow",
+    "status": "PUBLISHED",
+    "hash": {}
+  },
+  "Actions": [
+    {
+      "Parameters": {},
+      "Identifier": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "FlowLoggingBehavior": "Enabled"
+      },
+      "Identifier": "bf9841e4-9529-407d-8acd-7dc770230c37",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Transitions": {
+        "NextAction": "ed4d68e4-88e1-4874-91ee-0999735aa83c"
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "1dba7fce-c6b7-4070-a2e9-88ce7097ab75",
+      "Type": "TransferContactToQueue",
+      "Transitions": {
+        "NextAction": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+        "Errors": [
+          {
+            "NextAction": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+            "ErrorType": "QueueAtCapacity"
+          },
+          {
+            "NextAction": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "QueueId": "$.Attributes.voicemail-destination"
+      },
+      "Identifier": "ed4d68e4-88e1-4874-91ee-0999735aa83c",
+      "Type": "UpdateContactTargetQueue",
+      "Transitions": {
+        "NextAction": "1dba7fce-c6b7-4070-a2e9-88ce7097ab75",
+        "Errors": [
+          {
+            "NextAction": "1dba7fce-c6b7-4070-a2e9-88ce7097ab75",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    }
+  ]
+}

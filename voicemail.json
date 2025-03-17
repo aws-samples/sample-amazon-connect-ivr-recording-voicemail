@@ -1,0 +1,172 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "Set the voicemail attributes",
+  "Metadata": {
+    "entryPointPosition": {
+      "x": 40,
+      "y": 40
+    },
+    "ActionMetadata": {
+      "73432ebc-a3db-4d0b-b9f7-80c572a70230": {
+        "position": {
+          "x": 1473.6,
+          "y": 222.4
+        }
+      },
+      "d725c0bd-8e25-47dd-b333-4cc15da7b4c2": {
+        "position": {
+          "x": 1216.8,
+          "y": 120
+        },
+        "conditionMetadata": []
+      },
+      "d63261bd-73a7-4184-a759-594fd42d0d9b": {
+        "position": {
+          "x": 955.2,
+          "y": 118.4
+        }
+      },
+      "75b2f3b7-c2e6-449d-85d0-48ce46072092": {
+        "position": {
+          "x": 696,
+          "y": 117.6
+        }
+      },
+      "4a433176-5687-4323-8d6e-0e16e8bcbcd6": {
+        "position": {
+          "x": 434.4,
+          "y": 119.2
+        }
+      },
+      "Set the voicemail attributes": {
+        "position": {
+          "x": 177.6,
+          "y": 117.6
+        },
+        "isFriendlyName": true,
+        "dynamicParams": []
+      }
+    },
+    "Annotations": [
+      {
+        "type": "default",
+        "id": "3becfa9b-b2c2-465e-8de5-f5d47abd33dd",
+        "content": "voicemail = true indicates this contact is a voicemail\n\nvoicemail-destination should be set to the ARN of the queue you want the notification for this voicemail to be directed.\n\nFor example, if the call was intended to go to the BasicQueue, but resulted in a voicemail, you can set voicemail-destination to the ARN of the BasicQueue (or dynamically through the use of the Queue namespace). Voicemail notifications can also be sent to agent queues for personal voicemail.",
+        "actionId": "",
+        "isFolded": false,
+        "position": {
+          "x": 234,
+          "y": 367
+        },
+        "size": {
+          "height": 295,
+          "width": 300
+        }
+      }
+    ],
+    "name": "Voicemail",
+    "description": "",
+    "type": "contactFlow",
+    "status": "published",
+    "hash": {}
+  },
+  "Actions": [
+    {
+      "Parameters": {},
+      "Identifier": "73432ebc-a3db-4d0b-b9f7-80c572a70230",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    },
+    {
+      "Parameters": {
+        "StoreInput": "False",
+        "InputTimeLimitSeconds": "60",
+        "Text": " "
+      },
+      "Identifier": "d725c0bd-8e25-47dd-b333-4cc15da7b4c2",
+      "Type": "GetParticipantInput",
+      "Transitions": {
+        "NextAction": "73432ebc-a3db-4d0b-b9f7-80c572a70230",
+        "Errors": [
+          {
+            "NextAction": "73432ebc-a3db-4d0b-b9f7-80c572a70230",
+            "ErrorType": "InputTimeLimitExceeded"
+          },
+          {
+            "NextAction": "73432ebc-a3db-4d0b-b9f7-80c572a70230",
+            "ErrorType": "NoMatchingCondition"
+          },
+          {
+            "NextAction": "73432ebc-a3db-4d0b-b9f7-80c572a70230",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "SSML": "<speak>\n  <say-as interpret-as=\"expletive\">beep</say-as>\n</speak>"
+      },
+      "Identifier": "d63261bd-73a7-4184-a759-594fd42d0d9b",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "d725c0bd-8e25-47dd-b333-4cc15da7b4c2",
+        "Errors": [
+          {
+            "NextAction": "d725c0bd-8e25-47dd-b333-4cc15da7b4c2",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "RecordingBehavior": {
+          "RecordedParticipants": [],
+          "IVRRecordingBehavior": "Enabled"
+        }
+      },
+      "Identifier": "75b2f3b7-c2e6-449d-85d0-48ce46072092",
+      "Type": "UpdateContactRecordingBehavior",
+      "Transitions": {
+        "NextAction": "d63261bd-73a7-4184-a759-594fd42d0d9b"
+      }
+    },
+    {
+      "Parameters": {
+        "Text": "Sorry, we cannot take your call at the moment, please leave a message after the tone."
+      },
+      "Identifier": "4a433176-5687-4323-8d6e-0e16e8bcbcd6",
+      "Type": "MessageParticipant",
+      "Transitions": {
+        "NextAction": "75b2f3b7-c2e6-449d-85d0-48ce46072092",
+        "Errors": [
+          {
+            "NextAction": "75b2f3b7-c2e6-449d-85d0-48ce46072092",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "Attributes": {
+          "voicemail": "true",
+          "voicemail-destination": "arn:aws:connect:ap-southeast-2:964328442121:instance/1cc2a6ed-528e-4f96-afd2-0344b1c81114/queue/f4931946-8f30-449c-ba72-56b1b0bee900"
+        },
+        "TargetContact": "Current"
+      },
+      "Identifier": "Set the voicemail attributes",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "4a433176-5687-4323-8d6e-0e16e8bcbcd6",
+        "Errors": [
+          {
+            "NextAction": "4a433176-5687-4323-8d6e-0e16e8bcbcd6",
+            "ErrorType": "NoMatchingError"
+          }
+        ]
+      }
+    }
+  ]
+}
