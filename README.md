@@ -86,13 +86,14 @@ For your agents or supervisors to receive notifications for new voicemails, this
 
 ### 3. Create and deploy the AWS Lambda function (nodejs22.x)
 
-> [!NOTE] 
-> As new runtimes are released, and old runtime are deprecated, the runtime to choose might differ from the one at time of writing. This solution has been written to be "forward-compatible", and is based on AWS SDK v3.
-
 At a high-level, when a new recording is uploaded to S3, this function processes it by first extracting a Contact ID from the S3 Object Key. It then checks if the contact is marked as a voicemail by retrieving the contact attributes from Amazon Connect. If confirmed as a voicemail, it creates a pre-signed URL for the recording (valid for 48 hours) and creates a new task in Amazon Connect with the recording URL and destination information. The task is created with a reference to the original contact and includes the voicemail recording URL, making it accessible to agents through the Connect interface.
 
 1. In your AWS console, navigate to AWS Lambda and select **Create function**
 2. Input a function name (e.g. `ConnectVoicemailFunction`), ensure the runtime is set to `Node.JS 22.x` and select **Create function**
+
+> [!NOTE] 
+> As new runtimes are released, and old runtime are deprecated, the runtime to choose might differ from the one at time of writing. This solution has been written to be "forward-compatible", and is based on AWS SDK v3.
+
 3. Once the function has been created you can use [index.mjs](./index.mjs) found in this respository to either:
    - Copy and paste the code into the *index.mjs* file of your created Lambda function (recommended)
    - Download and zip *index.mjs* from this repository and use the .zip upload functionality of the AWS Lambda console to upload the file
