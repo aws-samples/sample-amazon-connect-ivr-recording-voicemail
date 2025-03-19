@@ -44,14 +44,23 @@
           "y": 117.6
         },
         "isFriendlyName": true,
-        "dynamicParams": []
+        "parameters": {
+          "Attributes": {
+            "phoneNumber": {
+              "useDynamic": true
+            }
+          }
+        },
+        "dynamicParams": [
+          "phoneNumber"
+        ]
       }
     },
     "Annotations": [
       {
         "type": "default",
         "id": "3becfa9b-b2c2-465e-8de5-f5d47abd33dd",
-        "content": "voicemail = true indicates this contact is a voicemail\n\nvoicemail-destination should be set to the ARN of the queue you want the notification for this voicemail to be directed.\n\nFor example, if the call was intended to go to the BasicQueue, but resulted in a voicemail, you can set voicemail-destination to the ARN of the BasicQueue (or dynamically through the use of the Queue namespace). Voicemail notifications can also be sent to agent queues for personal voicemail.",
+        "content": "voicemail = true indicates this contact is a voicemail\n\nvoicemail-destination should be set to the ARN of the queue you want the notification for this voicemail to be directed.\n\nFor example, if the call was intended to go to the BasicQueue, but resulted in a voicemail, you can set voicemail-destination to the ARN of the BasicQueue (or dynamically through the use of the Queue namespace). Voicemail notifications can also be sent to agent queues for personal voicemail.\n\nphoneNumber allows to include the phone number of the customer in the task for easy contact.",
         "actionId": "",
         "isFolded": false,
         "position": {
@@ -152,7 +161,8 @@
       "Parameters": {
         "Attributes": {
           "voicemail": "true",
-          "voicemail-destination": "arn:aws:connect:ap-southeast-2:964328442121:instance/1cc2a6ed-528e-4f96-afd2-0344b1c81114/queue/f4931946-8f30-449c-ba72-56b1b0bee900"
+          "voicemail-destination": "arn:aws:connect:ap-southeast-2:964328442121:instance/1cc2a6ed-528e-4f96-afd2-0344b1c81114/queue/f4931946-8f30-449c-ba72-56b1b0bee900",
+          "phoneNumber": "$.CustomerEndpoint.Address"
         },
         "TargetContact": "Current"
       },

@@ -55,7 +55,7 @@ Additionally, voicemail notifications are also delivered to the intended destina
 > - A contact attribute `voicemail` with a value set to `true`
 > - A contact attribute `voicemail-destination` with the value of a queue ARN. This reflects the destination the Task notification for this voicemail should be routed too (standard queue or user queue are supported)
 
-3. Select the first block, `Set Contact Attributes`, and update the `voicemail-destination` attribute a Queue ARN your agents will be available from.
+3. Select the first block, `Set Contact Attributes`, and update the `voicemail-destination` attribute with a queue ARN where the voicemail notifications will be directed.
    - To find a queue ARN within the Amazon Connect console navigate to **Routing** on the left-side and select **Queues**. From here select a given queue and expand the 'Show additional queue information' option.
 4. **Save and publish** the flow.
 5. Navigate to Channels on the left side and select **Phone numbers**. Assign a phone number to the newly created flow.
@@ -67,7 +67,7 @@ This flow provides the foundational logic (displayed below) to capture voice mes
 This flow leverages the functionality of automated interaction recording within Amazon Connect to capture the customer audio. This can be seen from of the `Recording and analytics behaviour` block, which enables **Automated interaction call recording**.
 
 This flow implements the following logic:
-1. Two contact attributes are set - `voicemail = true`, and `voicemail-destination = <the queue where the notification for a given voicemail will be sent>`. These attributes *are required* in order to be picked up as voicemails.
+1. Three contact attributes are set - `voicemail = true`, `voicemail-destination = <the queue where the notification for a given voicemail will be sent>`, and `phoneNumber` which is the phone number of the customer. These attributes *are required* in order to be picked up as voicemails.
 2. A prompt is played. This is the voicemail greeting. You can change it to adapt it to your needs.
 3. Automated interaction recording is enabled
 4. A *beep* is played to indicate the start of the recording
@@ -105,7 +105,7 @@ At a high-level, when a new recording is uploaded to S3, this function processes
 ![Environment variables](./assets/env-variables.png)
 
 5. Note the Lambda function ARN. This will be used in the next section when you create an S3 event notification.
-6. Update the [Execution role](https://docs.aws.amazon.com/lambda/latest/dg/permissions-executionrole-update.html) (found under the Configuration tab) with the following policy
+6. Update the [Execution role](https://docs.aws.amazon.com/lambda/latest/dg/permissions-executionrole-update.html) with the following policy. Navigate to the **Configuration** tab, and select **Permissions** in the left-hand side menu. You can open the execution role by clicking on the link under **Role name**. Attach a new inline policy, and in the JSON editor, paste the policy.
 
 > [!IMPORTANT] 
 > You will need to edit the below policy to point to the correct resources. This includes:
@@ -122,7 +122,6 @@ At a high-level, when a new recording is uploaded to S3, this function processes
                 "Effect": "Allow",
                 "Action": [
                     "connect:GetContactAttributes",
-                    "connect:DescribeContact",
                     "connect:StartTaskContact"
                 ],
                 "Resource": [
@@ -156,7 +155,7 @@ Amazon S3 Event Notifications enables this solution to detect the voice recordin
 2. Under the *Event notifications* section, select *Create event notification*.
 3. Update the following values under *General Configuration*
    - **Event Name:** A name of your choice (e.g. `connect-voicemail-s3-event`)
-   - **Prefix:** The path to the IVR recording within the bucket. By default this will be `connect/<instance alias>/CallRecordings/ivr/`, however review the contents of the bucket to validate.
+   - **Prefix:** The path to the IVR recording within the bucket. In the format `connect/<instance alias>/CallRecordings/ivr/`. Do not include the name of your S3 bucket in the prefix.
    - **Suffix:** `.wav`
 
 ![Prefix and suffix](./assets/s3-prefix.png)

@@ -1,7 +1,7 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 
-import { ConnectClient, GetContactAttributesCommand, DescribeContactCommand, StartTaskContactCommand } from "@aws-sdk/client-connect";
+import { ConnectClient, GetContactAttributesCommand, StartTaskContactCommand } from "@aws-sdk/client-connect";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 
@@ -32,29 +32,12 @@ const getVoicemailAttributes = async (client, contactId) => {
 
         return {
             isVoicemail: Attributes.voicemail || false,
-            destination: Attributes['voicemail-destination'] || null
+            destination: Attributes['voicemail-destination'] || null,
+            phoneNumber: Attributes['phoneNumber'] || null
         };
     } catch (error) {
         console.log('Error getting voicemail attributes:', error);
-        return { isVoicemail: false, destination: null };
-    }
-};
-
-/**
- * Gets contact details if destination is not available
- * @param {ConnectClient} client - Amazon Connect client
- * @param {string} contactId - Contact ID
- */
-const getContactDetails = async (client, contactId) => {
-    try {
-        const { Contact } = await client.send(new DescribeContactCommand({
-            InstanceId: process.env.INSTANCE_ID,
-            ContactId: contactId
-        }));
-        console.log('Contact details:', JSON.stringify(Contact));
-    } catch (error) {
-        console.log('Error getting contact details:', error);
-        throw error;
+        return { isVoicemail: false, destination: null, phoneNumber: null };
     }
 };
 
@@ -140,15 +123,6 @@ export const handler = async (event) => {
         // Get voicemail attributes
         const { isVoicemail, destination } = await getVoicemailAttributes(connectClient, contactId);
         if (!isVoicemail) continue;
-
-        // Get additional contact details if needed
-        if (!destination) {
-            try {
-                await getContactDetails(connectClient, contactId);
-            } catch (error) {
-                continue;
-            }
-        }
 
         // Create pre-signed URL for the recording
         const presignedUrl = await createPresignedUrl(
