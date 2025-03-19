@@ -67,7 +67,7 @@ This flow provides the foundational logic (displayed below) to capture voice mes
 This flow leverages the functionality of automated interaction recording within Amazon Connect to capture the customer audio. This can be seen from of the `Recording and analytics behaviour` block, which enables **Automated interaction call recording**.
 
 This flow implements the following logic:
-1. Two contact attributes are set - voicemail = true, and voicemail-destination = `<the queue where the notification for a given voicemail will be sent>`. These attributes *are required* in order to be picked up as voicemails.
+1. Two contact attributes are set - `voicemail = true`, and `voicemail-destination = <the queue where the notification for a given voicemail will be sent>`. These attributes *are required* in order to be picked up as voicemails.
 2. A prompt is played. This is the voicemail greeting. You can change it to adapt it to your needs.
 3. Automated interaction recording is enabled
 4. A *beep* is played to indicate the start of the recording
