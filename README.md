@@ -279,7 +279,7 @@ With your Amazon Connect flows, Lambda function and S3 event notification in pla
 Opening an issue in the Github project is the only path to report issues, ask for help, or log a feature request.
 
 ## Authors and acknowledgment
-This solution was authored by Aurelien Plancque, Senior Specialised Solutions Architect at Amazon Web Services. Documentation produced by Aurelien Plancque and Mark Macdonald (Specialised Technical Account Manager at Amazon Web Services).
+This solution was authored by Aurelien Plancque, Senior Specialised Solutions Architect at Amazon Web Services. Documentation produced by Aurelien Plancque, Mark Macdonald (Specialised Technical Account Manager at Amazon Web Services) and Arie Hazekamp.
 
 ## License
 MIT-0
