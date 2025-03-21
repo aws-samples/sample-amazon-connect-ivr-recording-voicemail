@@ -25,9 +25,9 @@ The following diagram illustrates the high-level architecture for the solution:
 By primarily leveraging native Amazon Connect features (automated recording, flows, and tasks), this solution maintains simplicity while requiring minimal additional AWS services (S3 Event Notification and Lambda) to deliver full voicemail functionality.
 
 
-## Deployment
+## Manual deployment
 
-To deploy this solution, you will need to create:
+To deploy this solution manually, you will need to create:
 - An AWS Lambda function (currently nodejs22.x runtime)
 - An Amazon S3 event notifications
 - An Amazon Connect flow to capture the customers voicemail
@@ -39,6 +39,7 @@ Before deploying this solution you will need to capture a few details from the A
 1. [Amazon Connect instance ID](https://docs.aws.amazon.com/connect/latest/adminguide/find-instance-arn.html)
 2. [Amazon Connect instance alias](https://docs.aws.amazon.com/connect/latest/adminguide/find-instance-name.html)
 3. S3 Bucket associated to your Amazon Connect instance - You can find it by navigating to Amazon Connect in the AWS console, selecting your Amazon Connect instance, and choosing Data storage in the left-hand side menu. The Amazon S3 bucket associated to your instance appears under **Call recordings**, and is by default in the form of *amazon-connect-xxxxxxxxxxxx*
+4. (optional) If the S3 bucket associated to the Amazon Connect is encrypted using a customer-managed KMS key, the ARN of the KMS key is required
 
 ### 2. Amazon Connect flows
 
@@ -98,15 +99,17 @@ At a high-level, when a new recording is uploaded to S3, this function processes
 3. Once the function has been created you can use [index.mjs](./index.mjs) found in this respository to either:
    - Copy and paste the code into the *index.mjs* file of your created Lambda function (recommended)
    - Download and zip *index.mjs* from this repository and use the .zip upload functionality of the AWS Lambda console to upload the file
-4. Create two [environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html)
+4. Create three [environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html)
    - Key: `INSTANCE_ID` | Value: The Instance ID captured in Section 1 'Prerequesites'
    - Key: `CONTACT_FLOW_ID` | Value: The flow ID portion of the flow ARN captured in Section 2.2 'Task Routing'. It is the last part of the ARN.
+   - Key: `KMS_KEY_ARN` | Value: If using a customer-managed KMS key for call recordings, the ARN of the csutoerKMS key used to encrypt object in the S3 bucket. Leave empty otherwise.
 
 ![Environment variables](./assets/env-variables.png)
 
 5. Note the Lambda function ARN. This will be used in the next section when you create an S3 event notification.
 6. Update the [Execution role](https://docs.aws.amazon.com/lambda/latest/dg/permissions-executionrole-update.html) with the following policy. Navigate to the **Configuration** tab, and select **Permissions** in the left-hand side menu. You can open the execution role by clicking on the link under **Role name**. Attach a new inline policy, and in the JSON editor, paste the policy.
 
+#### If not using a customer-managed KMS key
 > [!IMPORTANT] 
 > You will need to edit the below policy to point to the correct resources. This includes:
 > - Amazon Connect instance ARN
@@ -146,6 +149,56 @@ At a high-level, when a new recording is uploaded to S3, this function processes
         ]
     }
 
+#### If using a customer-managed KMS key
+> [!IMPORTANT] 
+> You will need to edit the below policy to point to the correct resources. This includes:
+> - Amazon Connect instance ARN
+> - Amazon S3 Bucket used by the Amazon Connect instance
+> - Amazon Connect Contact flow ID.
+> - KMS key ARN
+> These values were captured in Section 1 'Prerequesites' and Section 2.2 'Task routing'.
+
+    {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "ConnectPermissions",
+                "Effect": "Allow",
+                "Action": [
+                    "connect:GetContactAttributes",
+                    "connect:StartTaskContact"
+                ],
+                "Resource": [
+                    "<your Amazon Connect instance ARN>/contact/*",
+                    "<your Amazon Connect instance ARN>/task-template/*",
+                    "<your Amazon Connect instance ARN>/contact-flow/<your voicemail routing flow id>",
+                    "<your Amazon Connect instance ARN>/transfer-destination/*"
+                ]
+            },
+            {
+                "Sid": "S3Permissions",
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:ListBucket"
+                ],
+                "Resource": [
+                    "<your S3 bucket ARN>/*",
+                    "<your S3 bucket ARN>"
+                ]
+            },
+            {
+                "Action": [
+                    "kms:Decrypt",
+                    "kms:DescribeKey",
+                    "kms:GenerateDataKey"
+                ],
+                "Resource": "<your KMS key ARN>",
+                "Effect": "Allow"
+            }
+        ]
+    }
+
 
 ### 4. Activate Amazon S3 event notifications
 
@@ -175,6 +228,47 @@ Amazon S3 Event Notifications enables this solution to detect the voice recordin
 With your Amazon Connect flows, Lambda function and S3 event notification in place, you can now test the implementation.
 
 1. Dial the phone number associated to the flow in Section 2.1 'Capture the customer voicemail'. Leave a voicemail after the beep.
+2. Open the Amazon Connect CCP and accept the incoming Task. Select the URL within the Task to download the voicemail recording.
+   - Note: Ensure the [routing profile](https://docs.aws.amazon.com/connect/latest/adminguide/routing-profiles.html) associated to your user can accept tasks from the queue you chose as the destination for this voicemail.
+
+## Automated deployment
+
+For convenience, a Cloudformation template is provided for a more streamlined deployment. This option can be used if you are less experienced with creating AWS resources, but requires access to AWS Cloudformation.
+
+### Cloudformation template
+
+1. Download [template](./ivr-voicemail.yaml) and navigate to AWS Cloudformation in the AWS console.
+
+2. Choose **Create stack** and select **With new resources (standard)**.
+
+3. Upload the template downloaded at step 1 and select **Next**
+
+4. Enter a stack name and fill in the following parameters:
+    - ConnectInstanceAlias: the alias of the Amazon Connect instance
+    - ConnectInstanceArn: the ARN of the Amazon Connect instance
+    - RecordingsBucketName: the name of the S3 bucket associated to the Amazon Connect instance
+    - KMSKeyArn: (optional) the ARN of the customer-managed KMS key used to encrypt recordings. Leave empty if not using customer-managed key.
+
+5. Continue with the steps to create the stack.
+
+6. Download the [sample flow](./voicemail.json) from this repository
+7. Within the Amazon Connect console [import the flow](https://docs.aws.amazon.com/connect/latest/adminguide/contact-flow-import-export.html#how-to-import-export-contact-flows) and review its design
+
+> [!IMPORTANT]  
+> To be detected as a voicemail, a given contact *must have*:
+> - A contact attribute `voicemail` with a value set to `true`
+> - A contact attribute `voicemail-destination` with the value of a queue ARN. This reflects the destination the Task notification for this voicemail should be routed too (standard queue or user queue are supported)
+
+8. Select the first block, `Set Contact Attributes`, and update the `voicemail-destination` attribute with a queue ARN where the voicemail notifications will be directed.
+   - To find a queue ARN within the Amazon Connect console navigate to **Routing** on the left-side and select **Queues**. From here select a given queue and expand the 'Show additional queue information' option.
+9. **Save and publish** the flow.
+10. Navigate to Channels on the left side and select **Phone numbers**. Assign a phone number to the newly created flow.
+
+### Test the implementation
+
+With your Amazon Connect flows, Lambda function and S3 event notification in place, you can now test the implementation.
+
+1. Dial the phone number associated to the flow at step 10. above. Leave a voicemail after the beep.
 2. Open the Amazon Connect CCP and accept the incoming Task. Select the URL within the Task to download the voicemail recording.
    - Note: Ensure the [routing profile](https://docs.aws.amazon.com/connect/latest/adminguide/routing-profiles.html) associated to your user can accept tasks from the queue you chose as the destination for this voicemail.
 

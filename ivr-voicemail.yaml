@@ -1,0 +1,447 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Amazon Connect IVR Recording Voicemail Solution'
+
+Parameters:
+  RecordingsBucketName:
+    Type: String
+    Description: Name of the S3 bucket where recordings will be stored
+  
+  ConnectInstanceArn:
+    Type: String
+    Description: ARN of the Amazon Connect instance
+  
+  ConnectInstanceAlias:
+    Type: String
+    Description: Alias of the Amazon Connect instance
+
+  KMSKeyArn:
+    Type: String
+    Description: (Optional) ARN of the KMS key used to encrypt the S3 bucket. Leave empty if using AWS managed keys.
+    Default: ""
+
+Conditions:
+  HasKMSKey: !Not [!Equals [!Ref KMSKeyArn, ""]]
+
+Resources:
+  VoicemailProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: VoicemailProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - connect:GetContactAttributes
+                  - connect:StartTaskContact
+                Resource:
+                  - !Sub arn:aws:s3:::${RecordingsBucketName}/*
+                  - !Ref ConnectInstanceArn
+                  - !Sub ${ConnectInstanceArn}/contact/*
+                  - !Sub ${ConnectInstanceArn}/contact-flow/*
+        - !If 
+          - HasKMSKey
+          - PolicyName: KMSDecryptPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - kms:Decrypt
+                    - kms:DescribeKey
+                    - kms:GenerateDataKey
+                  Resource: !Ref KMSKeyArn
+          - !Ref AWS::NoValue
+
+  VoicemailProcessor:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt VoicemailProcessorRole.Arn
+      Code:
+        ZipFile: |
+          const { ConnectClient, GetContactAttributesCommand, StartTaskContactCommand } = require("@aws-sdk/client-connect");
+          const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+          const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+
+          const extractContactId = (key) => {
+              const match = key.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+              return match ? match[0] : null;
+          };
+
+          const getVoicemailAttributes = async (client, contactId) => {
+              try {
+                  const { Attributes } = await client.send(new GetContactAttributesCommand({
+                      InstanceId: process.env.INSTANCE_ID,
+                      InitialContactId: contactId
+                  }));
+
+                  console.log(JSON.stringify(Attributes));
+
+                  return {
+                      isVoicemail: Attributes.voicemail || false,
+                      destination: Attributes['voicemail-destination'] || null,
+                      phoneNumber: Attributes['phoneNumber'] || null
+                  };
+              } catch (error) {
+                  console.log('Error getting voicemail attributes:', error);
+                  return { isVoicemail: false, destination: null, phoneNumber: null };
+              }
+          };
+
+          const createPresignedUrl = async (client, bucket, key) => {
+              try {
+                  if (process.env.KMS_KEY_ARN !== '') {
+                    return await getSignedUrl(client, 
+                        new GetObjectCommand({ 
+                            Bucket: bucket, 
+                            Key: decodeURIComponent(key),
+                            ServerSideEncryption: 'aws:kms',
+                            SSEKMSKeyId: process.env.KMS_KEY_ARN
+                        }), 
+                        { expiresIn: 172800 }
+                    );
+                  } else {
+                    return await getSignedUrl(client, 
+                        new GetObjectCommand({ 
+                            Bucket: bucket, 
+                            Key: decodeURIComponent(key)
+                        }), 
+                        { expiresIn: 172800 }
+                    );
+                  }
+                  
+              } catch (error) {
+                  console.log('Error creating presigned URL:', error);
+                  return null;
+              }
+          };
+
+          const createConnectTask = async (client, contactId, recordingUrl, destination) => {
+              const taskParams = {
+                  RelatedContactId: contactId,
+                  ContactFlowId: process.env.CONTACT_FLOW_ID,
+                  InstanceId: process.env.INSTANCE_ID,
+                  Name: "New voicemail",
+                  References: {
+                      Recording: {
+                          Type: "URL",
+                          Value: recordingUrl
+                      }
+                  },
+                  Attributes: {
+                      "voicemail-destination": destination
+                  }
+              };
+
+              try {
+                  console.log('Creating task with params:', JSON.stringify(taskParams));
+                  const { ContactId } = await client.send(new StartTaskContactCommand(taskParams));
+                  return ContactId;
+              } catch (error) {
+                  console.log('Error creating Connect task:', error);
+                  return null;
+              }
+          };
+
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event));
+              
+              const connectClient = new ConnectClient();
+              const s3Client = new S3Client();
+
+              for (const record of event.Records) {
+                  if (!['ObjectCreated:Put', 'ObjectCreated:CompleteMultipartUpload'].includes(record.eventName)) {
+                      continue;
+                  }
+
+                  console.log('Processing S3 key:', decodeURI(record.s3.object.key));
+                  
+                  const contactId = extractContactId(record.s3.object.key);
+                  if (!contactId) continue;
+
+                  const { isVoicemail, destination } = await getVoicemailAttributes(connectClient, contactId);
+                  if (!isVoicemail) continue;
+
+                  const presignedUrl = await createPresignedUrl(
+                      s3Client, 
+                      record.s3.bucket.name, 
+                      record.s3.object.key
+                  );
+                  if (!presignedUrl) continue;
+
+                  await createConnectTask(connectClient, contactId, presignedUrl, destination);
+              }
+
+              return {};
+          };
+      Environment:
+        Variables:
+          INSTANCE_ID: !Select [1, !Split ['/', !Select [5, !Split [':', !Ref ConnectInstanceArn]]]]
+          CONTACT_FLOW_ID: !Ref VoicemailFlow
+          KMS_KEY_ARN: !If [HasKMSKey, !Ref KMSKeyArn, '']
+
+  VoicemailFlow:
+    Type: AWS::Connect::ContactFlow
+    Properties:
+      InstanceArn: !Ref ConnectInstanceArn
+      Name: Voicemail Notifications Routing
+      Type: CONTACT_FLOW
+      Content: |
+        {
+          "Version": "2019-10-30",
+          "StartAction": "bf9841e4-9529-407d-8acd-7dc770230c37",
+          "Metadata": {
+            "entryPointPosition": {
+              "x": 40,
+              "y": 40
+            },
+            "ActionMetadata": {
+              "db9f0e99-0ecb-41da-9e33-0927df1dbe32": {
+                "position": {
+                  "x": 942.4,
+                  "y": 179.2
+                }
+              },
+              "bf9841e4-9529-407d-8acd-7dc770230c37": {
+                "position": {
+                  "x": 164,
+                  "y": 95.2
+                }
+              },
+              "1dba7fce-c6b7-4070-a2e9-88ce7097ab75": {
+                "position": {
+                  "x": 688,
+                  "y": 95.2
+                }
+              },
+              "ed4d68e4-88e1-4874-91ee-0999735aa83c": {
+                "position": {
+                  "x": 421.6,
+                  "y": 95.2
+                },
+                "parameters": {
+                  "QueueId": {
+                    "useDynamic": true
+                  }
+                },
+                "useDynamic": true
+              }
+            },
+            "Annotations": [],
+            "name": "Voicemail routing",
+            "description": "",
+            "type": "contactFlow",
+            "status": "PUBLISHED",
+            "hash": {}
+          },
+          "Actions": [
+            {
+              "Parameters": {},
+              "Identifier": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+              "Type": "DisconnectParticipant",
+              "Transitions": {}
+            },
+            {
+              "Parameters": {
+                "FlowLoggingBehavior": "Enabled"
+              },
+              "Identifier": "bf9841e4-9529-407d-8acd-7dc770230c37",
+              "Type": "UpdateFlowLoggingBehavior",
+              "Transitions": {
+                "NextAction": "ed4d68e4-88e1-4874-91ee-0999735aa83c"
+              }
+            },
+            {
+              "Parameters": {},
+              "Identifier": "1dba7fce-c6b7-4070-a2e9-88ce7097ab75",
+              "Type": "TransferContactToQueue",
+              "Transitions": {
+                "NextAction": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+                "Errors": [
+                  {
+                    "NextAction": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+                    "ErrorType": "QueueAtCapacity"
+                  },
+                  {
+                    "NextAction": "db9f0e99-0ecb-41da-9e33-0927df1dbe32",
+                    "ErrorType": "NoMatchingError"
+                  }
+                ]
+              }
+            },
+            {
+              "Parameters": {
+                "QueueId": "$.Attributes.voicemail-destination"
+              },
+              "Identifier": "ed4d68e4-88e1-4874-91ee-0999735aa83c",
+              "Type": "UpdateContactTargetQueue",
+              "Transitions": {
+                "NextAction": "1dba7fce-c6b7-4070-a2e9-88ce7097ab75",
+                "Errors": [
+                  {
+                    "NextAction": "1dba7fce-c6b7-4070-a2e9-88ce7097ab75",
+                    "ErrorType": "NoMatchingError"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+
+  S3EventNotificationCustomResource:
+    Type: Custom::S3EventNotification
+    Properties:
+      ServiceToken: !GetAtt S3EventNotificationFunction.Arn
+      BucketName: !Ref RecordingsBucketName
+      NotificationConfiguration:
+        LambdaFunctionConfigurations:
+          - Events: 
+              - s3:ObjectCreated:Put
+              - s3:ObjectCreated:CompleteMultipartUpload
+            Filter:
+              Key:
+                FilterRules:
+                  - Name: prefix
+                    Value: !Sub connect/${ConnectInstanceAlias}/CallRecordings/ivr/
+                  - Name: suffix
+                    Value: .wav
+            LambdaFunctionArn: !GetAtt VoicemailProcessor.Arn
+
+  S3EventNotificationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !GetAtt S3EventNotificationRole.Arn
+      Code:
+        ZipFile: |
+          const { S3Client, PutBucketNotificationConfigurationCommand } = require("@aws-sdk/client-s3");
+          const https = require('https');
+          
+          exports.handler = async (event, context) => {
+            const s3Client = new S3Client();
+            
+            if (event.RequestType === 'Delete') {
+              return await sendResponse(event, context, 'SUCCESS');
+            }
+            
+            try {
+              const command = new PutBucketNotificationConfigurationCommand({
+                Bucket: event.ResourceProperties.BucketName,
+                NotificationConfiguration: event.ResourceProperties.NotificationConfiguration
+              });
+              
+              await s3Client.send(command);
+              await sendResponse(event, context, 'SUCCESS');
+            } catch (error) {
+              console.error('Error:', error);
+              await sendResponse(event, context, 'FAILED');
+            }
+          };
+          
+          async function sendResponse(event, context, responseStatus) {
+            return new Promise((resolve, reject) => {
+              const responseBody = JSON.stringify({
+                Status: responseStatus,
+                Reason: 'See the details in CloudWatch Log Stream: ' + context.logStreamName,
+                PhysicalResourceId: context.logStreamName,
+                StackId: event.StackId,
+                RequestId: event.RequestId,
+                LogicalResourceId: event.LogicalResourceId,
+                Data: {}
+              });
+
+              const parsedUrl = new URL(event.ResponseURL);
+              const options = {
+                hostname: parsedUrl.hostname,
+                port: 443,
+                path: parsedUrl.pathname + parsedUrl.search,
+                method: 'PUT',
+                headers: {
+                  'content-type': '',
+                  'content-length': responseBody.length
+                }
+              };
+
+              const request = https.request(options, (response) => {
+                response.on('end', () => {
+                  resolve();
+                });
+              });
+
+              request.on('error', (error) => {
+                console.log('sendResponse Error:', error);
+                reject(error);
+              });
+
+              request.write(responseBody);
+              request.end();
+            });
+          }
+
+  S3EventNotificationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3NotificationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:PutBucketNotification
+                Resource: !Sub arn:aws:s3:::${RecordingsBucketName}
+        - !If 
+          - HasKMSKey
+          - PolicyName: KMSDecryptPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - kms:Decrypt
+                    - kms:DescribeKey
+                    - kms:GenerateDataKey
+                  Resource: !Ref KMSKeyArn
+                  Condition:
+                    StringEquals:
+                      'kms:EncryptionContext:aws:s3:arn': !Sub arn:aws:s3:::${RecordingsBucketName}
+          - !Ref AWS::NoValue
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref VoicemailProcessor
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${RecordingsBucketName}
+
+Outputs:
+  VoicemailProcessorArn:
+    Description: ARN of the Voicemail Processor Lambda function
+    Value: !GetAtt VoicemailProcessor.Arn
+  
+  VoicemailFlowId:
+    Description: ID of the created Contact Flow
+    Value: !Ref VoicemailFlow

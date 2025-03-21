@@ -161,7 +161,7 @@
       "Parameters": {
         "Attributes": {
           "voicemail": "true",
-          "voicemail-destination": "arn:aws:connect:ap-southeast-2:964328442121:instance/1cc2a6ed-528e-4f96-afd2-0344b1c81114/queue/f4931946-8f30-449c-ba72-56b1b0bee900",
+          "voicemail-destination": "<a queue ARN>",
           "phoneNumber": "$.CustomerEndpoint.Address"
         },
         "TargetContact": "Current"
